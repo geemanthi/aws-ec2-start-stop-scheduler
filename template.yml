@@ -22,7 +22,8 @@ Resources:
     DependsOn: OfficeHoursLogGroup
     Properties:
       FunctionName: !Sub "${AWS::StackName}"
-      CodeUri: src/
+      CodeUri: .
+      Description: Start and stop tagged EC2 instances on Melbourne weekdays
       Handler: app.lambda_handler
       Runtime: python3.13
       Timeout: 120
