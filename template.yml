@@ -50,21 +50,36 @@ Resources:
         Variables:
           EC2_TAG_KEY: !Ref TagKey
           EC2_TAG_VALUE: !Ref TagValue
-      Policies:
+            Policies:
         - Statement:
             - Sid: DescribeInstances
               Effect: Allow
               Action: ec2:DescribeInstances
               Resource: "*"
-            - Sid: ChangeTaggedInstances
-              Effect: Allow
-              Action:
-                - ec2:StartInstances
-                - ec2:StopInstances
-              Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
-              Condition:
-                StringEquals:
+
+  OfficeHoursTagPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ChangeTaggedInstances
+      Roles:
+        - !Ref OfficeHoursFunctionRole
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "ChangeTaggedInstances",
+              "Effect": "Allow",
+              "Action": ["ec2:StartInstances", "ec2:StopInstances"],
+              "Resource": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*",
+              "Condition": {
+                "StringEquals": {
                   "ec2:ResourceTag/${TagKey}": "${TagValue}"
+                }
+              }
+            }
+          ]
+        }
 
   OfficeHoursScheduleGroup:
     Type: AWS::Scheduler::ScheduleGroup
