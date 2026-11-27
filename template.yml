@@ -9,6 +9,7 @@ Parameters:
     AllowedValues:
       - ENABLED
       - DISABLED
+
   TagKey:
     Type: String
     Default: AutoSchedule
@@ -40,7 +41,7 @@ Resources:
     Type: AWS::Serverless::Function
     DependsOn: OfficeHoursLogGroup
     Properties:
-      FunctionName: !Sub "${AWS::StackName}"
+      FunctionName: !Ref AWS::StackName
       CodeUri: .
       Description: Start and stop tagged EC2 instances on Melbourne weekdays
       Handler: app.lambda_handler
@@ -50,7 +51,7 @@ Resources:
         Variables:
           EC2_TAG_KEY: !Ref TagKey
           EC2_TAG_VALUE: !Ref TagValue
-            Policies:
+      Policies:
         - Statement:
             - Sid: DescribeInstances
               Effect: Allow
@@ -112,6 +113,7 @@ Resources:
 
   WeekdayStart:
     Type: AWS::Scheduler::Schedule
+    DependsOn: OfficeHoursTagPolicy
     Properties:
       Name: weekday-start
       GroupName: !Ref OfficeHoursScheduleGroup
@@ -133,6 +135,7 @@ Resources:
 
   WeekdayStop:
     Type: AWS::Scheduler::Schedule
+    DependsOn: OfficeHoursTagPolicy
     Properties:
       Name: weekday-stop
       GroupName: !Ref OfficeHoursScheduleGroup
@@ -152,5 +155,6 @@ Resources:
 Outputs:
   FunctionName:
     Value: !Ref OfficeHoursFunction
+
   LogGroupName:
     Value: !Ref OfficeHoursLogGroup
