@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Start and stop tagged EC2 instances on Melbourne weekdays
+
+Parameters:
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+
+  TagKey:
+    Type: String
+    Default: AutoSchedule
+    AllowedPattern: '[A-Za-z0-9_.:/+=@-]{1,128}'
+
+  TagValue:
+    Type: String
+    Default: office-hours
+    AllowedPattern: '[A-Za-z0-9_.:/+=@-]{1,256}'
+
+  StartTime:
+    Type: String
+    Default: "08:00"
+    AllowedPattern: '([01][0-9]|2[0-3]):[0-5][0-9]'
+
+  StopTime:
+    Type: String
+    Default: "18:00"
+    AllowedPattern: '([01][0-9]|2[0-3]):[0-5][0-9]'
+
+Resources:
+  OfficeHoursLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}"
+      RetentionInDays: 14
+
+  OfficeHoursFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: OfficeHoursLogGroup
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      CodeUri: .
+      Description: Start and stop tagged EC2 instances on Melbourne weekdays
+      Handler: app.lambda_handler
+      Runtime: python3.13
+      Timeout: 120
+      Environment:
+        Variables:
+          EC2_TAG_KEY: !Ref TagKey
+          EC2_TAG_VALUE: !Ref TagValue
+      Policies:
+        - Statement:
+            - Sid: DescribeInstances
+              Effect: Allow
+              Action: ec2:DescribeInstances
+              Resource: "*"
+
+  OfficeHoursTagPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ChangeTaggedInstances
+      Roles:
+        - !Ref OfficeHoursFunctionRole
+      PolicyDocument: !Sub |
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "ChangeTaggedInstances",
+              "Effect": "Allow",
+              "Action": ["ec2:StartInstances", "ec2:StopInstances"],
+              "Resource": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*",
+              "Condition": {
+                "StringEquals": {
+                  "ec2:ResourceTag/${TagKey}": "${TagValue}"
+                }
+              }
+            }
+          ]
+        }
+
+  OfficeHoursScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: !Ref AWS::StackName
+
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+              ArnEquals:
+                "aws:SourceArn": !GetAtt OfficeHoursScheduleGroup.Arn
+      Policies:
+        - PolicyName: InvokeOfficeHoursFunction
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt OfficeHoursFunction.Arn
+
+  WeekdayStart:
+    Type: AWS::Scheduler::Schedule
+    DependsOn: OfficeHoursTagPolicy
+    Properties:
+      Name: weekday-start
+      GroupName: !Ref OfficeHoursScheduleGroup
+      State: !Ref ScheduleState
+      ScheduleExpression: !Sub
+        - "cron(${Minute} ${Hour} ? * MON-FRI *)"
+        - Hour: !Select [0, !Split [":", !Ref StartTime]]
+          Minute: !Select [1, !Split [":", !Ref StartTime]]
+      ScheduleExpressionTimezone: Australia/Melbourne
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OfficeHoursFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action":"start"}'
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 300
+          MaximumRetryAttempts: 2
+
+  WeekdayStop:
+    Type: AWS::Scheduler::Schedule
+    DependsOn: OfficeHoursTagPolicy
+    Properties:
+      Name: weekday-stop
+      GroupName: !Ref OfficeHoursScheduleGroup
+      State: !Ref ScheduleState
+      ScheduleExpression: !Sub
+        - "cron(${Minute} ${Hour} ? * MON-FRI *)"
+        - Hour: !Select [0, !Split [":", !Ref StopTime]]
+          Minute: !Select [1, !Split [":", !Ref StopTime]]
+      ScheduleExpressionTimezone: Australia/Melbourne
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OfficeHoursFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action":"stop"}'
+
+Outputs:
+  FunctionName:
+    Value: !Ref OfficeHoursFunction
+
+  LogGroupName:
+    Value: !Ref OfficeHoursLogGroup
