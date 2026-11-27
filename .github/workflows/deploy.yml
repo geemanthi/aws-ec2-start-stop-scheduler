@@ -76,6 +76,10 @@ jobs:
       - name: Deploy stack
         env:
           SCHEDULE_STATE: ENABLED #${{ inputs.schedule_state }}
+          EC2_TAG_KEY: ${{ vars.EC2_TAG_KEY }}
+          EC2_TAG_VALUE: ${{ vars.EC2_TAG_VALUE }}
+          EC2_START_TIME: ${{ vars.EC2_START_TIME }}
+          EC2_STOP_TIME: ${{ vars.EC2_STOP_TIME }}
         run: |
           sam deploy \
             --stack-name "$STACK_NAME" \
@@ -83,7 +87,12 @@ jobs:
             --s3-bucket "$ARTIFACT_BUCKET" \
             --s3-prefix "$STACK_NAME" \
             --capabilities CAPABILITY_IAM \
-            --parameter-overrides "ScheduleState=$SCHEDULE_STATE" \
+            --parameter-overrides \
+              "ScheduleState=$SCHEDULE_STATE" \
+              "TagKey=$EC2_TAG_KEY" \
+              "TagValue=$EC2_TAG_VALUE" \
+              "StartTime=$EC2_START_TIME" \
+              "StopTime=$EC2_STOP_TIME" \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
         # The bucket must already exist in AWS_REGION.

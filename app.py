@@ -8,7 +8,10 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 ec2 = boto3.client("ec2")
-TAG_FILTER = {"Name": "tag:AutoSchedule", "Values": ["office-hours"]}
+TAG_FILTER = {
+    "Name": f"tag:{os.environ['EC2_TAG_KEY']}",
+    "Values": [os.environ["EC2_TAG_VALUE"]],
+}
 
 
 def lambda_handler(event, context):

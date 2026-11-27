@@ -9,6 +9,25 @@ Parameters:
     AllowedValues:
       - ENABLED
       - DISABLED
+  TagKey:
+    Type: String
+    Default: AutoSchedule
+    AllowedPattern: '[A-Za-z0-9_.:/+=@-]{1,128}'
+
+  TagValue:
+    Type: String
+    Default: office-hours
+    AllowedPattern: '[A-Za-z0-9_.:/+=@-]{1,256}'
+
+  StartTime:
+    Type: String
+    Default: "08:00"
+    AllowedPattern: '([01][0-9]|2[0-3]):[0-5][0-9]'
+
+  StopTime:
+    Type: String
+    Default: "18:00"
+    AllowedPattern: '([01][0-9]|2[0-3]):[0-5][0-9]'
 
 Resources:
   OfficeHoursLogGroup:
@@ -27,6 +46,10 @@ Resources:
       Handler: app.lambda_handler
       Runtime: python3.13
       Timeout: 120
+      Environment:
+        Variables:
+          EC2_TAG_KEY: !Ref TagKey
+          EC2_TAG_VALUE: !Ref TagValue
       Policies:
         - Statement:
             - Sid: DescribeInstances
@@ -41,7 +64,7 @@ Resources:
               Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
               Condition:
                 StringEquals:
-                  "ec2:ResourceTag/AutoSchedule": office-hours
+                  "ec2:ResourceTag/${TagKey}": "${TagValue}"
 
   OfficeHoursScheduleGroup:
     Type: AWS::Scheduler::ScheduleGroup
@@ -78,7 +101,10 @@ Resources:
       Name: weekday-start
       GroupName: !Ref OfficeHoursScheduleGroup
       State: !Ref ScheduleState
-      ScheduleExpression: "cron(10 16 ? * MON-FRI *)"
+      ScheduleExpression: !Sub
+        - "cron(${Minute} ${Hour} ? * MON-FRI *)"
+        - Hour: !Select [0, !Split [":", !Ref StartTime]]
+          Minute: !Select [1, !Split [":", !Ref StartTime]]
       ScheduleExpressionTimezone: Australia/Melbourne
       FlexibleTimeWindow:
         Mode: "OFF"
@@ -96,7 +122,10 @@ Resources:
       Name: weekday-stop
       GroupName: !Ref OfficeHoursScheduleGroup
       State: !Ref ScheduleState
-      ScheduleExpression: "cron(0 16 ? * MON-FRI *)"
+      ScheduleExpression: !Sub
+        - "cron(${Minute} ${Hour} ? * MON-FRI *)"
+        - Hour: !Select [0, !Split [":", !Ref StopTime]]
+          Minute: !Select [1, !Split [":", !Ref StopTime]]
       ScheduleExpressionTimezone: Australia/Melbourne
       FlexibleTimeWindow:
         Mode: "OFF"
