@@ -74,8 +74,8 @@ jobs:
         run: sam build
 
       - name: Deploy stack
-        # env:
-          # SCHEDULE_STATE: ${{ inputs.schedule_state }}
+        env:
+          SCHEDULE_STATE: ENABLED #${{ inputs.schedule_state }}
         run: |
           sam deploy \
             --stack-name "$STACK_NAME" \
