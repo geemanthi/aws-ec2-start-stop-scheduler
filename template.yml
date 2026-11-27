@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Start and stop tagged EC2 instances on Melbourne weekdays
+
+Parameters:
+  ScheduleState:
+    Type: String
+    Default: DISABLED
+    AllowedValues:
+      - ENABLED
+      - DISABLED
+
+Resources:
+  OfficeHoursLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}"
+      RetentionInDays: 14
+
+  OfficeHoursFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: OfficeHoursLogGroup
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}"
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Runtime: python3.13
+      Timeout: 120
+      Policies:
+        - Statement:
+            - Sid: DescribeInstances
+              Effect: Allow
+              Action: ec2:DescribeInstances
+              Resource: "*"
+            - Sid: ChangeTaggedInstances
+              Effect: Allow
+              Action:
+                - ec2:StartInstances
+                - ec2:StopInstances
+              Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+              Condition:
+                StringEquals:
+                  "ec2:ResourceTag/AutoSchedule": office-hours
+
+  OfficeHoursScheduleGroup:
+    Type: AWS::Scheduler::ScheduleGroup
+    Properties:
+      Name: !Ref AWS::StackName
+
+  SchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+              ArnEquals:
+                "aws:SourceArn": !GetAtt OfficeHoursScheduleGroup.Arn
+      Policies:
+        - PolicyName: InvokeOfficeHoursFunction
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt OfficeHoursFunction.Arn
+
+  WeekdayStart:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: weekday-start
+      GroupName: !Ref OfficeHoursScheduleGroup
+      State: !Ref ScheduleState
+      ScheduleExpression: "cron(10 16 ? * MON-FRI *)"
+      ScheduleExpressionTimezone: Australia/Melbourne
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OfficeHoursFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action":"start"}'
+        RetryPolicy:
+          MaximumEventAgeInSeconds: 300
+          MaximumRetryAttempts: 2
+
+  WeekdayStop:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: weekday-stop
+      GroupName: !Ref OfficeHoursScheduleGroup
+      State: !Ref ScheduleState
+      ScheduleExpression: "cron(0 16 ? * MON-FRI *)"
+      ScheduleExpressionTimezone: Australia/Melbourne
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt OfficeHoursFunction.Arn
+        RoleArn: !GetAtt SchedulerInvokeRole.Arn
+        Input: '{"action":"stop"}'
+
+Outputs:
+  FunctionName:
+    Value: !Ref OfficeHoursFunction
+  LogGroupName:
+    Value: !Ref OfficeHoursLogGroup

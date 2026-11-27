@@ -1,0 +1,89 @@
+name: EC2 Office Hours
+
+on:
+  push:
+    branches: [main, release*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      schedule_state:
+        description: EventBridge schedule state after deployment
+        type: choice
+        options:
+          - DISABLED
+          - ENABLED
+        default: DISABLED
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  STACK_NAME: ec2-start-stop-daily-scheduler
+  ARTIFACT_BUCKET: ${{ vars.SAM_ARTIFACT_BUCKET }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: aws-actions/setup-sam@v2
+
+      - name: Check Python syntax
+        run: python -m py_compile app.py
+
+      - name: Validate AWS SAM template
+        run: |
+          sam validate --lint --region "$AWS_REGION"
+
+  deploy:
+    # if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: ec2-office-hours-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: aws-actions/setup-sam@v2
+
+      - name: Authenticate to AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build deployment package
+        run: sam build
+
+      - name: Deploy stack
+        env:
+          # SCHEDULE_STATE: ${{ inputs.schedule_state }}
+        run: |
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --region "$AWS_REGION" \
+            --s3-bucket "$ARTIFACT_BUCKET" \
+            --s3-prefix "$STACK_NAME" \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides "ScheduleState=$SCHEDULE_STATE" \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+        # The bucket must already exist in AWS_REGION.
